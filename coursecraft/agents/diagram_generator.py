@@ -36,11 +36,28 @@ def generate_mermaid_diagram(topic: str, description: str) -> str:
         code = raw.split("```mermaid")[1].split("```")[0].strip()
         # Verify valid header
         if any(code.startswith(k) for k in ["flowchart", "graph", "sequenceDiagram", "classDiagram", "stateDiagram"]):
-            return code
+            sg_count = len(re.findall(r"\bsubgraph\b", code))
+            end_count = len(re.findall(r"\bend\b", code))
+            if sg_count > end_count:
+                code += "\n" + ("    end\n" * (sg_count - end_count))
+            lines = [l.strip() for l in code.strip().split("\n") if l.strip()]
+            # Must have at least 3 lines and valid terminal
+            if len(lines) >= 3 and not lines[-1].startswith("subgraph"):
+                return code
 
-    # Deterministic fallback diagrams tailored for School of Management with 100% valid quotes
+    # Deterministic fallback diagrams tailored for Management with 100% valid quotes
     clean_t = sanitize_mermaid_label(topic)
     topic_lower = topic.lower()
+
+    if any(k in topic_lower for k in ["human resource", "hrm", "talent", "employee", "workforce", "turnover", "recruitment", "labor"]):
+        return f"""flowchart TD
+    Strategy["Corporate Business Strategy & Growth"] --> HRPlan["Strategic Workforce Planning & Competency Mapping"]
+    HRPlan --> TalentAcq["Targeted Talent Acquisition & Employer Branding"]
+    HRPlan --> PerfDev["Continuous Performance Appraisal & Upskilling"]
+    TalentAcq --> Retain["Total Rewards, Incentive Banding & Retention"]
+    PerfDev --> Retain
+    Retain --> BusinessROI["Sustained Competitive Advantage & Higher Human Capital ROI"]
+"""
 
     if any(k in topic_lower for k in ["platform", "network", "ecosystem", "marketplace", "swiggy", "zomato", "blinkit", "zepto"]):
         return f"""graph LR

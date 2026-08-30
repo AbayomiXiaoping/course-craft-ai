@@ -10,37 +10,49 @@ from coursecraft.core.models import LessonPage, LessonBlock, ResourceLink, Flash
 from coursecraft.agents.quiz_generator import generate_quizzes_from_text
 from coursecraft.agents.diagram_generator import generate_mermaid_diagram
 from coursecraft.parsers.document_parser import extract_potential_latex, clean_academic_text
+from coursecraft.agents.llm_orchestrator import generate_structured_synthesis
 
 
 def extract_relevant_topic_content(topic: str, raw_content: str) -> str:
-    """Finds the most relevant textual section for the topic in the provided document."""
+    """Finds or synthesizes the most relevant textual section for the topic."""
     cleaned = clean_academic_text(raw_content)
-    if not cleaned:
-        return f"Comprehensive exploration of theoretical foundations, strategic frameworks, and empirical case studies in {topic}."
 
-    # Look for the topic keyword inside the text
-    topic_keywords = [w for w in re.split(r"[\s\:\—\-]+", topic) if len(w) > 4 and w.lower() not in ["concepts", "analysis", "module", "lecture", "introduction"]]
-    
-    # Try finding an exact match for the section
-    for kw in topic_keywords:
-        match = re.search(rf"(?:^|\n)([^\n]*{kw}[^\n]*\n(?:[^\n]+\n){{2,12}})", cleaned, re.IGNORECASE)
-        if match:
-            extracted = match.group(1).strip()
-            if len(extracted) > 120:
-                return extracted
+    # 1. AI-Powered Educational Synthesis with Gemini
+    if topic and len(topic.strip()) > 3:
+        system_prompt = (
+            "You are an expert graduate business school professor. "
+            "Write 2 to 3 comprehensive, engaging, textbook-style paragraphs explaining "
+            "the foundational concepts, strategic importance, and managerial decision frameworks for this topic. "
+            "CRITICAL: Do NOT output lists of page numbers, tables of contents, or syllabus clutter. "
+            "Write pure, high-quality, professional educational prose."
+        )
+        user_prompt = f"Topic: {topic}\n\nContext excerpt:\n{cleaned[:2000] if cleaned else topic}"
+        ai_prose = generate_structured_synthesis(system_prompt, user_prompt, max_tokens=700)
+        if ai_prose and len(ai_prose.strip()) > 150 and not any(k in ai_prose.lower() for k in ["table of contents", "learning outcomes 3", "page 1"]):
+            ai_clean = re.sub(r"^```[a-z]*\s*", "", ai_prose.strip(), flags=re.IGNORECASE)
+            ai_clean = re.sub(r"\s*```$", "", ai_clean).strip()
+            return ai_clean
 
-    # Fallback: Filter out short header lines and return the first 3 substantial paragraphs of real prose
-    paragraphs = [
-        p.strip() for p in cleaned.split("\n\n")
-        if len(p.strip()) > 80 and not any(skip in p.lower() for skip in [
-            "acknowledgments", "about this book", "pressbooks", "contents",
-            "edition", "creative commons", "fanshawe", "isbn", "license"
-        ])
-    ]
-    if paragraphs:
-        return "\n\n".join(paragraphs[:3])
+    # 2. Heuristic Filter: Eliminate TOC lines (lines ending in page numbers or containing 1.1, 1.2 TOC format)
+    lines = [l.strip() for l in cleaned.split("\n") if l.strip()]
+    prose_lines = []
+    for line in lines:
+        # Ignore TOC lines like "1.0 Learning Outcomes 3" or "Chapter 2: Planning 39"
+        if re.search(r"^\d+\.\d+\s+.*?\d+$", line) or re.search(r"^Chapter\s*\d+.*?\d+$", line):
+            continue
+        if any(skip in line.lower() for skip in ["pressbooks", "contents", "isbn", "license", "acknowledgment"]):
+            continue
+        if len(line) > 60:
+            prose_lines.append(line)
 
-    return f"Foundational principles, managerial frameworks, and empirical field studies in {topic}."
+    if prose_lines:
+        topic_words = [w.lower() for w in re.split(r"[\s\:\—\-]+", topic) if len(w) > 4]
+        relevant = [l for l in prose_lines if any(kw in l.lower() for kw in topic_words)]
+        if relevant:
+            return "\n\n".join(relevant[:4])
+        return "\n\n".join(prose_lines[:3])
+
+    return f"Comprehensive examination of strategic frameworks, operational trade-offs, and empirical business models in {topic}."
 
 
 def synthesize_lesson_from_material(

@@ -8,10 +8,13 @@ import re
 from typing import Dict, Any, List
 
 
-INVALID_NAME_VERBS = {
+INVALID_NAME_WORDS = {
     "defined", "stated", "argued", "observed", "concluded", "presents",
     "explained", "indicated", "shows", "developed", "introduced", "discusses",
-    "suggests", "reviewed", "summarized", "examined"
+    "suggests", "reviewed", "summarized", "examined", "slide", "decks",
+    "click", "view", "download", "free", "creative", "commons", "chapter",
+    "pressbooks", "faculty", "instructor", "edition", "page", "resource",
+    "online", "version", "contents", "table"
 }
 
 
@@ -27,7 +30,9 @@ NON_CURRICULUM_INDICATORS = {
     "table", "photo", "image", "isbn", "page", "sleeping car porters", "brotherhood",
     "retrieved from", "citation", "endnote", "footnote", "pressbooks", "acknowledgment",
     "about the author", "appendix", "index", "glossary", "references", "activities",
-    "exercise", "questions", "key terms", "review questions", "learning objectives"
+    "exercise", "questions", "key terms", "review questions", "learning objectives",
+    "learning outcomes", "learning outcome", "summary", "preface", "preface to",
+    "exercises/activities", "case study:", "visible minorities", "key terms 30"
 }
 
 
@@ -83,21 +88,22 @@ def parse_syllabus_text(text: str) -> Dict[str, Any]:
         if title_match:
             result["course_title"] = clean_title(title_match.group(1))
 
-    # 3. Extract Instructor Name
-    author_match = re.search(r"(?:by|Author:)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,2})", text, re.IGNORECASE)
-    prof_match = re.search(r"(?:Professor|Instructor|Dr\.|Prof\.)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,2})", text)
+    # 3. Extract Instructor Name (with strict rejection of noise words)
+    author_match = re.search(r"(?:Author:|by)\s+([A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+){1,2})", text)
+    prof_match = re.search(r"(?:Professor|Dr\.|Prof\.)\s+([A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+){1,2})", text)
 
     candidate_name = None
-    if prof_match:
-        candidate_name = prof_match.group(1)
-    elif author_match:
-        candidate_name = author_match.group(1)
+    if author_match:
+        candidate_name = author_match.group(1).strip()
+    elif prof_match:
+        candidate_name = prof_match.group(1).strip()
 
     if candidate_name:
         words = candidate_name.split()
-        clean_words = [w for w in words if w.lower() not in INVALID_NAME_VERBS and w.lower() not in ["is", "the", "a", "of", "and", "under", "licensed"]]
-        if 1 <= len(clean_words) <= 3:
-            result["professor_name"] = f"Prof. {' '.join(clean_words)}"
+        if not any(w.lower() in INVALID_NAME_WORDS for w in words):
+            clean_words = [w for w in words if w.lower() not in ["is", "the", "a", "of", "and", "under", "licensed"]]
+            if 1 <= len(clean_words) <= 3:
+                result["professor_name"] = f"Prof. {' '.join(clean_words)}"
 
     # 4. Extract Grading Policy
     grading_matches = re.findall(r"([A-Za-z\s/]+)[:\-]\s*(\d{1,3}\s*%)", text)
@@ -132,7 +138,29 @@ def parse_syllabus_text(text: str) -> Dict[str, Any]:
                 if cur_idx > 12:
                     break
 
-    # Pattern B: Textbook Chapters & Subsections (e.g. Chapter 1: ..., 1.1 ..., 1.2 ...)
+    # Pattern B: Textbook Chapters (e.g. Chapter 1: Human Resources Strategy, Chapter 2: ...)
+    if not result["weeks"]:
+        chapter_matches = re.findall(r"Chapter\s*(\d{1,2})[:\-]?\s*([^\n\r\d]+?)(?:\s+\d+|\n|$)", text, flags=re.IGNORECASE)
+        seen_ch = set()
+        ch_idx = 1
+        for c_num, raw_t in chapter_matches:
+            c_title = clean_title(raw_t.strip())
+            c_title = re.sub(r"^[\d\.\:\s\"\'\“\”\-]+", "", c_title).strip()
+            c_title = c_title.strip('"\'“”')
+            if is_valid_curriculum_title(c_title) and c_title.lower() not in seen_ch:
+                seen_ch.add(c_title.lower())
+                result["weeks"].append(
+                    {
+                        "week_number": ch_idx,
+                        "title": f"Week {ch_idx}: {c_title}",
+                        "overview": f"Comprehensive study of {c_title} in modern business and organizational management.",
+                    }
+                )
+                ch_idx += 1
+                if ch_idx > 12:
+                    break
+
+    # Pattern C: Subsections (1.1, 1.2...) only if neither Week nor Chapter patterns yielded weeks
     if not result["weeks"]:
         subsections = re.findall(r"(\d+\.\d+)\s+([A-Za-z\s\&\,\-]+?)(?:\s+\d+|\n|$)", text)
         clean_subsecs = []
