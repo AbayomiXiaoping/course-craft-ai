@@ -1,0 +1,14 @@
+[project]
+name = "course-craft-ai"
+version = "1.0.0"
+description = "CourseCraft AI — Academic Course Portal Studio for Higher Education"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "streamlit>=1.37.0",
+    "pydantic>=2.0.0",
+    "pypdf>=6.16.2",
+    "python-dotenv>=1.0.0",
+    "openai>=1.40.0",
+    "requests>=2.31.0",
+]
